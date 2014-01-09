@@ -1,0 +1,19 @@
+We want to allow iframes for embedding videos from youtube/vimeo and other 
+sites but definitely do not want iframes for any other reason. This is not 
+straighforward because bleach has no support for optionally allowing tags 
+based on attributes, in this case netloc host matching. 
+
+Bleach provides it's own sanitizer on top of html5lib and we want what it 
+provides but need to add custom logic to support iframe testing. 
+
+Hence SMBleachSanitizerMixin. In order to get it into the inheritance 
+chain of the top level bleach functions, monkey patching the bleach
+library was nessasary. 
+
+All other solutions also required modifying key bleach inheritance
+chains anyway, so this is the most straightforward solution. 
+
+MODIFIED FILES:
+
+__init__.py - modified
+smsanitizer.py - added

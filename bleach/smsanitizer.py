@@ -5,13 +5,44 @@ from html5lib.constants import tokenTypes
 from html5lib.sanitizer import HTMLSanitizerMixin
 from html5lib.tokenizer import HTMLTokenizer
 
+import urllib2 # SUPERMASSIVE
 
+# SUPERMASSIVE feed isn't in acceptable_protocols. I think html5lib got updated.
 #PROTOS = HTMLSanitizerMixin.acceptable_protocols
 #PROTOS.remove('feed')
 
+# SUPERMASSIVE 
+ALLOWED_IFRAME_HOSTS = [
+    'www.youtube.com',
+    'youtube.com',
+    'player.vimeo.com',
+]
 
-class BleachSanitizerMixin(HTMLSanitizerMixin):
-    """Mixin to replace sanitize_token() and sanitize_css()."""
+"""
+We want to allow iframes for embedding videos from youtube/vimeo and other 
+sites but definitely do not want iframes for any other reason. This is not 
+straighforward because bleach has no support for optionally allowing tags 
+based on attributes, in this case netloc host matching. 
+
+Bleach provides it's own sanitizer on top of html5lib and we want what it 
+provides but need to add custom logic to support iframe testing. 
+
+Hence SMBleachSanitizerMixin. In order to get it into the inheritance 
+chain of the top level bleach functions, monkey patching the bleach
+library was nessasary. 
+
+All other solutions also required modifying key bleach inheritance
+chains anyway, so this is the most straightforward solution. 
+"""
+
+class SMBleachSanitizerMixin(HTMLSanitizerMixin):
+    """Mixin to replace sanitize_token() and sanitize_css().
+    =========================================================
+    SUPERMASSIVE
+    This class has been modified to support Supermassives use 
+    case of embedding videos in descriptions / text fields 
+    using iframe tags if they have specific netloc hostnames.
+    """
 
     allowed_svg_properties = []
     # TODO: When the next html5lib version comes out, nuke this.
@@ -27,7 +58,11 @@ class BleachSanitizerMixin(HTMLSanitizerMixin):
         and value. It should return true of false.
 
         Also gives the option to strip tags instead of encoding.
-
+        ===========================================================
+        SUPERMASSIVE
+        This function has been modified to support iframes from specific
+        sites to allow embedding of videos using auto-generated embed
+        links.
         """
         if (getattr(self, 'wildcard_attributes', None) is None and
             isinstance(self.allowed_attributes, dict)):
@@ -35,7 +70,21 @@ class BleachSanitizerMixin(HTMLSanitizerMixin):
 
         if token['type'] in (tokenTypes['StartTag'], tokenTypes['EndTag'],
                              tokenTypes['EmptyTag']):
-            if token['name'] in self.allowed_elements:
+            #=== SUPERMASSIVE Patch START
+            if token['name'] == 'iframe':
+                # only allow iframe that have a netloc host that in ALLOWED_IFRAME_HOSTS
+                if 'data' in token and not token['selfClosing']:
+                    attrs = dict([(name, val) for name, val in
+                                  token['data']]) 
+                    if 'src' in attrs:
+                        # check that this is an allowed host
+                        if urllib2.urlparse.urlparse(attrs['src']).hostname in ALLOWED_IFRAME_HOSTS:
+                            return token
+                    elif token['type'] == tokenTypes['EndTag']:
+                        token['data'] = '</%s>' % token['name']
+                        return token
+            #=== SUPERMASSIVE Patch END
+            elif token['name'] in self.allowed_elements:   # if statement changed to elif - SUPERMASSIVE
                 if 'data' in token:
                     if isinstance(self.allowed_attributes, dict):
                         allowed_attributes = self.allowed_attributes.get(
@@ -133,7 +182,7 @@ class BleachSanitizerMixin(HTMLSanitizerMixin):
         return ' '.join(clean)
 
 
-class BleachSanitizer(HTMLTokenizer, BleachSanitizerMixin):
+class SMBleachSanitizer(HTMLTokenizer, SMBleachSanitizerMixin):
     def __init__(self, stream, encoding=None, parseMeta=True, useChardet=True,
                  lowercaseElementName=True, lowercaseAttrName=True, **kwargs):
         HTMLTokenizer.__init__(self, stream, encoding, parseMeta, useChardet,
